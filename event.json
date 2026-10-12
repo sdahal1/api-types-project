@@ -1,0 +1,7 @@
+{
+  "resource": "/products/{productId}",
+  "path": "/products/1738",
+  "httpMethod": "GET",
+  "pathParameters": {"productId": "1738"},
+  "requestContext": {"requestId": "local-example-request", "stage": "dev"}
+}

@@ -1,0 +1,141 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Episode 3 fictional partner catalog; REST API usage-plan learning lab.
+
+Parameters:
+  EnableGatewayAccessLogs:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['false', 'true']
+    Description: Enable only after API Gateway has a working regional CloudWatch logs role. See README.
+
+Conditions:
+  GatewayLogsEnabled: !Equals [!Ref EnableGatewayAccessLogs, 'true']
+
+Resources:
+  ProductApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub ${AWS::StackName}-catalog
+      StageName: dev
+      EndpointConfiguration:
+        Type: REGIONAL
+      OpenApiVersion: '3.0.1'
+      ApiKeySourceType: HEADER
+      Auth:
+        ApiKeyRequired: true
+      CacheClusterEnabled: false
+      AccessLogSetting: !If
+        - GatewayLogsEnabled
+        - DestinationArn: !GetAtt GatewayAccessLogGroup.Arn
+          Format: '{"requestId":"$context.requestId","extendedRequestId":"$context.extendedRequestId","method":"$context.httpMethod","resource":"$context.resourcePath","status":"$context.status","responseLatencyMs":"$context.responseLatency","apiKeyId":"$context.identity.apiKeyId"}'
+        - !Ref AWS::NoValue
+
+  ProductFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: app.handler
+      Runtime: python3.12
+      Timeout: 5
+      MemorySize: 128
+      Events:
+        ProductDetails:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ProductApi
+            Path: /products/{productId}
+            Method: get
+
+  FunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${ProductFunction}
+      RetentionInDays: 7
+
+  GatewayAccessLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      RetentionInDays: 7
+
+  RetailerAKey:
+    Type: AWS::ApiGateway::ApiKey
+    Properties:
+      Name: !Sub ${AWS::StackName}-retailer-a
+      Enabled: true
+      Description: Fictional retailer A; metering identifier, not sign-in.
+
+  RetailerBKey:
+    Type: AWS::ApiGateway::ApiKey
+    Properties:
+      Name: !Sub ${AWS::StackName}-retailer-b
+      Enabled: true
+      Description: Fictional retailer B; metering identifier, not sign-in.
+
+  RetailerAPlan:
+    Type: AWS::ApiGateway::UsagePlan
+    Properties:
+      UsagePlanName: !Sub ${AWS::StackName}-retailer-a
+      Description: Illustrative best-effort target of 100 requests per day for retailer A.
+      ApiStages:
+        - ApiId: !Ref ProductApi
+          Stage: !Ref ProductApi.Stage
+      Quota:
+        Limit: 100
+        Period: DAY
+      Throttle:
+        RateLimit: 2
+        BurstLimit: 5
+
+  RetailerBPlan:
+    Type: AWS::ApiGateway::UsagePlan
+    Properties:
+      UsagePlanName: !Sub ${AWS::StackName}-retailer-b
+      Description: Illustrative best-effort target of 1000 requests per day for retailer B.
+      ApiStages:
+        - ApiId: !Ref ProductApi
+          Stage: !Ref ProductApi.Stage
+      Quota:
+        Limit: 1000
+        Period: DAY
+      Throttle:
+        RateLimit: 5
+        BurstLimit: 10
+
+  RetailerAPlanKey:
+    Type: AWS::ApiGateway::UsagePlanKey
+    Properties:
+      KeyId: !Ref RetailerAKey
+      KeyType: API_KEY
+      UsagePlanId: !Ref RetailerAPlan
+
+  RetailerBPlanKey:
+    Type: AWS::ApiGateway::UsagePlanKey
+    Properties:
+      KeyId: !Ref RetailerBKey
+      KeyType: API_KEY
+      UsagePlanId: !Ref RetailerBPlan
+
+Outputs:
+  ProductUrl:
+    Description: Deployed fictional product endpoint.
+    Value: !Sub https://${ProductApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/dev/products/1738
+  ApiId:
+    Value: !Ref ProductApi
+  RetailerAKeyId:
+    Description: Key ID only. Retrieve the value separately; do not publish it.
+    Value: !Ref RetailerAKey
+  RetailerBKeyId:
+    Value: !Ref RetailerBKey
+  RetailerAPlanId:
+    Value: !Ref RetailerAPlan
+  RetailerBPlanId:
+    Value: !Ref RetailerBPlan
+  FunctionLogGroupName:
+    Value: !Ref FunctionLogGroup
+  GatewayAccessLogGroupName:
+    Value: !Ref GatewayAccessLogGroup
